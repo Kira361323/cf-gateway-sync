@@ -281,11 +281,11 @@ fn normalize_domain(raw: &str) -> Option<String> {
         domain.truncate(pos);
     }
 
-    while domain.ends_with('^') || domain.ends_with('.') {
+        while domain.ends_with('^') || domain.ends_with('.') || domain.ends_with('*') {
         domain.pop();
     }
 
-    while domain.starts_with('.') {
+    while domain.starts_with('.') || domain.starts_with('*') {
         domain.remove(0);
     }
 
