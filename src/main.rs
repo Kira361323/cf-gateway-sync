@@ -460,11 +460,11 @@ fn sync_rules(
         let name = format!("{}{}", PREFIX_RULE, index + 1);
         target_names.insert(name.clone());
 
-        let ids_str = chunk
+        let traffic = chunk
             .iter()
-            .map(|id| format!("${}", id))
+            .map(|id| format!("any(dns.domains[*] in ${})", id))
             .collect::<Vec<String>>()
-            .join(" ");
+            .join(" or ");
 
         let traffic = RULE_TRAFFIC_TEMPLATE.replacen("{}", &ids_str, 1);
 
