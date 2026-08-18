@@ -2,7 +2,7 @@ name: Daily Cloudflare Sync
 
 on:
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '23 4 * * *'
   workflow_dispatch:
 
 permissions:
