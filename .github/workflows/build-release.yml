@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/build-release.yml'
   workflow_dispatch:
 
@@ -23,7 +24,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Release Binary
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Generate checksum
         run: |
