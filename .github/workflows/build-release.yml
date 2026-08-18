@@ -2,18 +2,20 @@ name: Build and Release Rust Binary
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - 'src/**'
       - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/build-release.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,13 +24,20 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Release Binary
-        run: cargo build --release
+        run: cargo build --locked --release
+
+      - name: Generate checksum
+        run: |
+          sha256sum target/release/cf-gateway-sync \
+            | awk '{print $1 "  cf-gateway-sync"}' > cf-gateway-sync.sha256
 
       - name: Publish Release Assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
           name: Latest Release
-          files: target/release/cf-gateway-sync
+          files: |
+            target/release/cf-gateway-sync
+            cf-gateway-sync.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
