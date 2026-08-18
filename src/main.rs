@@ -16,10 +16,6 @@ const RETRIES: u32 = 3;
 const HTTP_TIMEOUT_SECS: u64 = 60;
 const USER_AGENT: &str = "cf-gateway-sync/0.1";
 
-// {{}} после replacen превращается в { ... }.
-// Если Cloudflare требует dns.domains[*], замени на:
-// "any(dns.domains[*] in {{}})"
-const RULE_TRAFFIC_TEMPLATE: &str = "any(dns.domains[*] in {{}})";
 
 type BoxError = Box<dyn std::error::Error>;
 
@@ -452,10 +448,6 @@ fn sync_rules(
     let base_url = client.rules_url();
     let mut target_names = HashSet::new();
 
-    if !RULE_TRAFFIC_TEMPLATE.contains("{}") {
-        return Err("RULE_TRAFFIC_TEMPLATE must contain {} placeholder".into());
-    }
-
     for (index, chunk) in list_ids.chunks(LISTS_PER_RULE).enumerate() {
         let name = format!("{}{}", PREFIX_RULE, index + 1);
         target_names.insert(name.clone());
@@ -465,8 +457,6 @@ fn sync_rules(
             .map(|id| format!("any(dns.domains[*] in ${})", id))
             .collect::<Vec<String>>()
             .join(" or ");
-
-        let traffic = RULE_TRAFFIC_TEMPLATE.replacen("{}", &ids_str, 1);
 
         let payload = json!({
             "name": name,
