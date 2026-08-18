@@ -19,7 +19,7 @@ const USER_AGENT: &str = "cf-gateway-sync/0.1";
 // {{}} после replacen превращается в { ... }.
 // Если Cloudflare требует dns.domains[*], замени на:
 // "any(dns.domains[*] in {{}})"
-const RULE_TRAFFIC_TEMPLATE: &str = "any(dns.domains in {{}})";
+const RULE_TRAFFIC_TEMPLATE: &str = "any(dns.domains[*] in {{}})";
 
 type BoxError = Box<dyn std::error::Error>;
 
