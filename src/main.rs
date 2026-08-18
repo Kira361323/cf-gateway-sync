@@ -16,7 +16,6 @@ const RETRIES: u32 = 3;
 const HTTP_TIMEOUT_SECS: u64 = 60;
 const USER_AGENT: &str = "cf-gateway-sync/0.1";
 
-
 type BoxError = Box<dyn std::error::Error>;
 
 struct CfClient {
@@ -443,7 +442,6 @@ fn sync_rules(
     client: &CfClient,
     list_ids: &[String],
     existing_rules: &HashMap<String, String>,
-    precedence_base: u64,
 ) -> Result<HashSet<String>, BoxError> {
     let base_url = client.rules_url();
     let mut target_names = HashSet::new();
@@ -452,16 +450,19 @@ fn sync_rules(
         let name = format!("{}{}", PREFIX_RULE, index + 1);
         target_names.insert(name.clone());
 
+        // Рабочий синтаксис Cloudflare Gateway для нескольких списков:
+        // any(dns.domains[*] in $id1) or any(dns.domains[*] in $id2) or ...
         let traffic = chunk
             .iter()
             .map(|id| format!("any(dns.domains[*] in ${})", id))
             .collect::<Vec<String>>()
             .join(" or ");
 
+        // precedence убран: при POST Cloudflare поставит правило в конец (низкий приоритет),
+        // при PUT сохранит текущую позицию — это предотвращает конфликты с DnsConf.
         let payload = json!({
             "name": name,
             "description": "Auto-generated AdBlock policy",
-            "precedence": precedence_base + index as u64,
             "action": "block",
             "filters": ["dns"],
             "traffic": traffic,
@@ -514,11 +515,6 @@ fn main() -> Result<(), BoxError> {
     let account_id = required_env("CF_ACCOUNT_ID")?;
     let urls_env = required_env("BLOCKLIST_URLS")?;
 
-    let precedence_base: u64 = env::var("RULE_PRECEDENCE_BASE")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(10000);
-
     let domains = fetch_domains(&urls_env)?;
 
     println!("Total unique domains: {}", domains.len());
@@ -535,14 +531,14 @@ fn main() -> Result<(), BoxError> {
     let (target_list_ids, target_list_names) =
         sync_lists(&client, &domains, &existing_lists)?;
 
-    let target_rule_names = sync_rules(
-        &client,
-        &target_list_ids,
-        &existing_rules,
-        precedence_base,
-    )?;
+    // Определяем, какие правила будут существовать после синхронизации.
+    // Удаляем старые правила ДО создания новых, чтобы освободить их precedence.
+    let target_rule_count = (target_list_ids.len() + LISTS_PER_RULE - 1) / LISTS_PER_RULE;
+    let mut target_rule_names = HashSet::new();
+    for i in 0..target_rule_count {
+        target_rule_names.insert(format!("{}{}", PREFIX_RULE, i + 1));
+    }
 
-    // Сначала удаляем старые правила, чтобы они не держали старые списки.
     delete_missing(
         &client,
         &rules_url,
@@ -551,6 +547,9 @@ fn main() -> Result<(), BoxError> {
         "rule",
     );
 
+    let actual_rule_names = sync_rules(&client, &target_list_ids, &existing_rules)?;
+
+    // Удаляем старые списки после обновления правил.
     delete_missing(
         &client,
         &lists_url,
@@ -559,7 +558,10 @@ fn main() -> Result<(), BoxError> {
         "list",
     );
 
-    println!("Sync completed successfully.");
+    println!(
+        "Sync completed successfully. Rules created/updated: {}",
+        actual_rule_names.len()
+    );
     Ok(())
 }
 
