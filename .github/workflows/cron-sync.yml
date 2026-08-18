@@ -5,21 +5,40 @@ on:
     - cron: '0 3 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: cf-gateway-sync
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Download Latest Binary
+        shell: bash
         run: |
-          gh release download latest -p "cf-gateway-sync" --repo ${{ github.repository }}
+          set -euo pipefail
+
+          gh release download latest \
+            -p "cf-gateway-sync" \
+            -p "cf-gateway-sync.sha256" \
+            --repo ${{ github.repository }}
+
+          sha256sum -c cf-gateway-sync.sha256
           chmod +x cf-gateway-sync
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Execute Sync Engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./cf-gateway-sync
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           BLOCKLIST_URLS: ${{ vars.BLOCKLIST_URLS }}
-        run: ./cf-gateway-sync
