@@ -7,7 +7,7 @@ const PREFIX_LIST: &str = "CF_AdBlock_Rust_Part_";
 const PREFIX_RULE: &str = "CF_AdBlock_Rust_Policy_";
 
 const CHUNK_SIZE: usize = 1000;
-const MAX_DOMAINS: usize = 300_000;
+const MAX_DOMAINS: usize = 250_000;
 const LISTS_PER_RULE: usize = 100;
 
 const PAGE_SIZE: u64 = 100;
