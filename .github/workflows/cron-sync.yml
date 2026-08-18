@@ -25,7 +25,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build binary
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Execute Sync Engine
         run: target/release/cf-gateway-sync
