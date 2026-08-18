@@ -6,8 +6,11 @@ use serde_json::{json, Value};
 const PREFIX_LIST: &str = "CF_AdBlock_Rust_Part_";
 const PREFIX_RULE: &str = "CF_AdBlock_Rust_Policy_";
 
+// Жёсткий лимит Cloudflare Standard: 1000 записей на список.
 const CHUNK_SIZE: usize = 1000;
-const MAX_DOMAINS: usize = 250_000;
+// Лимит количества списков на аккаунт ~277; 275k = 275 списков + запас.
+const MAX_DOMAINS: usize = 275_000;
+// Ограничение Cloudflare на число списков в одном правиле.
 const LISTS_PER_RULE: usize = 100;
 
 const PAGE_SIZE: u64 = 100;
@@ -281,7 +284,7 @@ fn normalize_domain(raw: &str) -> Option<String> {
         domain.truncate(pos);
     }
 
-        while domain.ends_with('^') || domain.ends_with('.') || domain.ends_with('*') {
+    while domain.ends_with('^') || domain.ends_with('.') || domain.ends_with('*') {
         domain.pop();
     }
 
@@ -323,6 +326,32 @@ fn parse_domains(text: &str, domains: &mut HashSet<String>) {
     }
 }
 
+// Селектор Domain матчит домен и все сабдомены, поэтому сабдомены,
+// чей родитель уже в наборе, избыточны и безопасно удаляются.
+fn dedupe_subdomains(domains: &[String]) -> Vec<String> {
+    let all: HashSet<&str> = domains.iter().map(String::as_str).collect();
+    let mut out = Vec::with_capacity(domains.len());
+
+    for domain in domains {
+        let mut covered = false;
+        let mut rest = domain.as_str();
+
+        while let Some(pos) = rest.find('.') {
+            rest = &rest[pos + 1..];
+            if all.contains(rest) {
+                covered = true;
+                break;
+            }
+        }
+
+        if !covered {
+            out.push(domain.clone());
+        }
+    }
+
+    out
+}
+
 fn fetch_domains(urls_env: &str) -> Result<Vec<String>, BoxError> {
     let mut domains = HashSet::new();
     let mut total_sources = 0usize;
@@ -361,6 +390,16 @@ fn fetch_domains(urls_env: &str) -> Result<Vec<String>, BoxError> {
 
     let mut domains: Vec<String> = domains.into_iter().collect();
     domains.sort_unstable();
+
+    let before_dedupe = domains.len();
+    let mut domains = dedupe_subdomains(&domains);
+    if domains.len() != before_dedupe {
+        println!(
+            "Subdomain dedupe: {} -> {} (parents cover subdomains)",
+            before_dedupe,
+            domains.len()
+        );
+    }
 
     if domains.len() > MAX_DOMAINS {
         eprintln!(
@@ -450,16 +489,15 @@ fn sync_rules(
         let name = format!("{}{}", PREFIX_RULE, index + 1);
         target_names.insert(name.clone());
 
-        // Рабочий синтаксис Cloudflare Gateway для нескольких списков:
-        // any(dns.domains[*] in $id1) or any(dns.domains[*] in $id2) or ...
+        // Рабочий синтаксис Cloudflare Gateway для нескольких списков.
         let traffic = chunk
             .iter()
             .map(|id| format!("any(dns.domains[*] in ${})", id))
             .collect::<Vec<String>>()
             .join(" or ");
 
-        // precedence убран: при POST Cloudflare поставит правило в конец (низкий приоритет),
-        // при PUT сохранит текущую позицию — это предотвращает конфликты с DnsConf.
+        // Без precedence: при POST Cloudflare ставит правило в конец
+        // (ниже правил DnsConf), при PUT сохраняет текущую позицию.
         let payload = json!({
             "name": name,
             "description": "Auto-generated AdBlock policy",
@@ -531,8 +569,7 @@ fn main() -> Result<(), BoxError> {
     let (target_list_ids, target_list_names) =
         sync_lists(&client, &domains, &existing_lists)?;
 
-    // Определяем, какие правила будут существовать после синхронизации.
-    // Удаляем старые правила ДО создания новых, чтобы освободить их precedence.
+    // Удаляем старые правила ДО создания новых, чтобы освободить позиции.
     let target_rule_count = (target_list_ids.len() + LISTS_PER_RULE - 1) / LISTS_PER_RULE;
     let mut target_rule_names = HashSet::new();
     for i in 0..target_rule_count {
@@ -549,7 +586,7 @@ fn main() -> Result<(), BoxError> {
 
     let actual_rule_names = sync_rules(&client, &target_list_ids, &existing_rules)?;
 
-    // Удаляем старые списки после обновления правил.
+    // Старые списки удаляем после обновления правил.
     delete_missing(
         &client,
         &lists_url,
@@ -586,10 +623,33 @@ mod tests {
     }
 
     #[test]
+    fn parses_wildcard_line() {
+        assert_eq!(
+            normalize_domain("*.Example.com"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
     fn skips_comments_and_invalid() {
         assert_eq!(normalize_domain("! comment"), None);
         assert_eq!(normalize_domain("# comment"), None);
         assert_eq!(normalize_domain("1.2.3.4"), None);
         assert_eq!(normalize_domain("localhost"), None);
+    }
+
+    #[test]
+    fn dedupes_subdomains() {
+        let domains = vec![
+            "ads.example.com".to_string(),
+            "example.com".to_string(),
+            "tracker.net".to_string(),
+            "x.ads.example.com".to_string(),
+        ];
+        let out = dedupe_subdomains(&domains);
+        assert_eq!(
+            out,
+            vec!["example.com".to_string(), "tracker.net".to_string()]
+        );
     }
 }
